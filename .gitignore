@@ -348,3 +348,7 @@ MigrationBackup/
 
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
+__vm/Compile.vmps.xml
+__vm/Upload.vmps.xml
+__vm/Configuration.Release.vmps.xml
+src/__vm/.DesktopClock.vsarduino.h
