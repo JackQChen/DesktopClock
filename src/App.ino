@@ -1,23 +1,12 @@
-﻿// for ESP8266
-#include <Arduino.h>
+﻿#include <Arduino.h>
 #include <U8g2lib.h>
 #include <NTPClient.h>
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <WiFiUdp.h>
-#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "icon.h"
-
-//for ESP32
-//#include <Arduino.h>
-//#include <U8g2lib.h>
-//#include <NTPClient.h>
-//#include <WiFi.h>
-//#include <WiFiUdp.h>
-//#include <WiFiClientSecure.h>
-//#include <HTTPClient.h>
-//#include <ArduinoJson.h>
-//#include "icon.h"
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -38,13 +27,13 @@ HTTPClient httpClient;
 DynamicJsonDocument doc(1024);
 
 U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, SCL, SDA, U8X8_PIN_NONE);
-int frame = -1, weather = 0;
-unsigned long epochTime;
-bool showColon = false;
+int sec = 0, weather = 0;
+unsigned long epochTime, currentMillis, previousMillis, period = 1000;
 String weekDays[7] = { "日", "一", "二","三", "四", "五", "六" };
 String date = "---- -- --", h = "--", m = "--", w = "-", temp = "--", hum = "--", aqi = "---";
 
-void setup() {
+void setup()
+{
 	Serial.begin(115200);
 	while (!Serial);
 
@@ -80,9 +69,6 @@ void draw()
 	u8g2.print(h);
 	u8g2.setCursor(87, 30);
 	u8g2.print(m);
-	u8g2.setCursor(76, 28);
-	showColon = !showColon;
-	u8g2.print(showColon ? ":" : " ");
 
 	//temperature
 	u8g2.setFont(u8g2_font_VCR_OSD_tf);
@@ -92,7 +78,7 @@ void draw()
 
 	//hum
 	u8g2.setCursor(49, 52);
-	u8g2.print(String(hum));
+	u8g2.print(hum);
 	u8g2.setFont(u8g2_font_luBS12_tr);
 	u8g2.setCursor(74, 50);
 	u8g2.print("%");
@@ -104,45 +90,57 @@ void draw()
 
 	//date
 	u8g2.setFont(u8g2_font_smart_patrol_nbp_tn);
-	u8g2.setCursor(5, 64);
+	u8g2.setCursor(2, 64);
 	u8g2.print(date);
 	u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-	u8g2.setCursor(90, 63);
+	u8g2.setCursor(92, 63);
 	u8g2.print("星期" + w);
+
+	u8g2.sendBuffer();
+}
+
+void drawColon()
+{
+	if (sec % 2 == 0)
+		u8g2.drawXBMP(78, 0, 9, 30, col_colon);
+	else
+	{
+		u8g2.setDrawColor(0);
+		u8g2.drawBox(78, 0, 9, 30);
+		u8g2.setDrawColor(1);
+	}
 
 	u8g2.sendBuffer();
 }
 
 String padLeft(int val)
 {
-	return padLeft(val, "0");
+	return padLeft(val, 2, "0");
 }
 
-String padLeft(int val, String chr)
+String padLeft(int val, int len, String chr)
 {
-	return (val > 9 ? "" : chr) + String(val);
+	String strRet = String(val);
+	int j = len - strRet.length();
+	for (int i = 0; i < j; i++)
+		strRet = chr + strRet;
+	return strRet;
 }
 
-void loop() {
-	frame++;
-	if (frame >= 3600)
-		frame = 0;
+void loop()
+{
+	currentMillis = millis();
+	if (currentMillis > previousMillis && currentMillis - previousMillis < period)
+		return;
+	previousMillis = currentMillis;
+
+	timeClient.update();
+	sec = timeClient.getSeconds();
 
 	//datetime
-	if (frame % 60 == 0)
+	if (sec == 0 || w == "-")
 	{
-		if (timeClient.update())
-			epochTime = timeClient.getEpochTime();
-		else
-		{
-			frame = -3;
-			return;
-		}
-	}
-
-	//datetime
-	if (frame % 60 == 0)
-	{
+		epochTime = timeClient.getEpochTime();
 		struct tm* ptm = gmtime((time_t*)&epochTime);
 		date = String(1900 + ptm->tm_year) + "-" + padLeft(1 + ptm->tm_mon) + "-" + padLeft(ptm->tm_mday);
 		h = padLeft(timeClient.getHours());
@@ -151,7 +149,7 @@ void loop() {
 	}
 
 	//weather
-	if (frame % 1800 == 0)
+	if ((sec == 0 && m == "30") || aqi == "---")
 	{
 		httpClient.begin("http://d1.weather.com.cn/sk_2d/" + String(cityCode) + ".html?_=" + String(epochTime));
 		httpClient.addHeader("Referer", "http://www.weather.com.cn/weather1d/" + String(cityCode) + ".shtml");
@@ -161,19 +159,26 @@ void loop() {
 			String payload = httpClient.getString();
 			payload = payload.substring(payload.indexOf("=") + 1);
 			deserializeJson(doc, payload);
-			temp = padLeft(doc["temp"].as<int>(), " ");
-			hum = "52";
-			aqi = doc["aqi"].as<String>();
-			String strWeather = doc["weathere"].as<String>();
-			strWeather.toLowerCase();
-			if (strWeather == "foggy") weather = /*多云*/ 64;
-			else if (strWeather == "cloudy") weather = /*晴转多云*/ 65;
-			else if (strWeather == "sunny") weather = /*晴*/ 66;
-			else if (strWeather == "sunny") weather = /*晴*/ 69;
-			else if (strWeather == "rainy") weather = /*雨*/ 67;
+			temp = padLeft(doc["temp"].as<int>(), 2, " ");
+			hum = doc["sd"].as<String>().substring(0, 2);
+			aqi = padLeft(doc["aqi"].as<int>(), 3, " ");
+			//多云-64 晴转多云-65 夜间-66 雨-67 晴-69
+			int ih = h.toInt();
+			if (ih > 21 || ih < 6)
+				weather = 66;
+			else
+			{
+				String strWeather = doc["weathere"].as<String>();
+				strWeather.toLowerCase();
+				if (strWeather == "sunny") weather = 69;
+				else if (strWeather == "rainy") weather = 67;
+				else weather = 64;
+			}
 		}
+		sec = 0;
 	}
 
-	draw();
-	delay(1000);
+	if (sec == 0)
+		draw();
+	drawColon();
 }
