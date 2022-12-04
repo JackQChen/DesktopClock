@@ -109,8 +109,8 @@ void drawColon()
 		u8g2.drawBox(78, 0, 9, 30);
 		u8g2.setDrawColor(1);
 	}
-
-	u8g2.sendBuffer();
+	//9*8=72<78 0*8=0 2*8=16>9 4*8=32>30
+	u8g2.updateDisplayArea(9, 0, 2, 4);
 }
 
 String padLeft(int val)
