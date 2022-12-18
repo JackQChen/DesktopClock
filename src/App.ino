@@ -48,8 +48,8 @@ void setup()
 	WiFi.begin(ssid, password);
 	while (WiFi.status() != WL_CONNECTED)
 	{
-		delay(500);
 		Serial.print("Connecting to WIFI...");
+		delay(500);
 	}
 
 	timeClient.begin();
@@ -130,7 +130,7 @@ String padLeft(int val, int len, String chr)
 void loop()
 {
 	currentMillis = millis();
-	if (currentMillis > previousMillis && currentMillis - previousMillis < period)
+	if (currentMillis >= previousMillis && currentMillis - previousMillis < period)
 		return;
 	previousMillis = currentMillis;
 
